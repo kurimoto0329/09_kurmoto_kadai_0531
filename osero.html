@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="css/reset.css">
+    <link rel="stylesheet" href="css/app.css">
+    <title>オセロゲーム</title>
+</head>
+<body>
+    <div id="main" class="container">
+        <div id="game-board"></div>
+        <div id="current-player">Current player: <span id="current-player-name">-</span></div>
+        <div id="message"></div>
+        <div id="console"></div>
+    </div>
+
+    <!-- <script src="vendor/jquery/jquery-1.9.1.min.js"></script> -->
+    <!-- JQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <!-- JQuery -->
+    <!-- <script src="vendor/twitter-bootstrap/js/bootstrap.min.js"></script> -->
+    <script src="app.js"></script>
+
+    <script>
+        var EMPTY = 'empty';
+        var WHITE = 'white';
+        var BLACK = 'black';
+
+        let N =4 ;
+
+        function makeInitialGameBoard() {
+            var board = {};
+
+            for (var x = 0; x < N; x++)
+                for (var y = 0; y < N; y++)
+                    board[[x, y]] = EMPTY;
+
+            var x2 = N/2;
+            var y2 = N/2;
+            board[[x2 - 1, y2 - 1]] = WHITE;
+            board[[x2 - 1, y2 - 0]] = BLACK;
+            board[[x2 - 0, y2 - 1]] = BLACK;
+            board[[x2 - 0, y2 - 0]] = WHITE;
+
+            return board;
+        }
+
+        function drawGameBoard(board, player) {
+            var ss = [];
+
+            ss.push('<table>');
+            for (var y = -1; y < N; y++) {
+                ss.push('<tr>');
+                for (var x = -1; x < N; x++) {
+                if (0 <= y && 0 <= x) {
+                    ss.push('<td class="');
+                    ss.push('cell');
+                    ss.push(' ');
+                    ss.push(board[[x, y]]);
+                    ss.push('">');
+                    ss.push('<span class="disc"></span>');
+                    ss.push('</td>');
+                } else if (0 <= x && y == -1) {
+                    ss.push('<th>' + 'abcdefgh'[x] + '</th>');
+                } else if (x == -1 && 0 <= y) {
+                    ss.push('<th>' + '12345678'[y] + '</th>');
+                } else /* if (x == -1 && y == -1) */ {
+                    ss.push('<th></th>');
+                }
+                }
+                ss.push('</tr>');
+            }
+            ss.push('</table>');
+
+            $('#game-board').html(ss.join(''));
+            console.log(ss);
+            console.log('abcdefgh'[0]);
+            console.log(board);
+            $('#current-player-name').text(player);
+
+        }
+
+        drawGameBoard(makeInitialGameBoard(), BLACK);
+        resetGame();
+
+
+        //ゲーム中のある局面(=ゲーム木)を作る関数で下記の項目を返す
+        //・盤面(board)
+        //・手番のプレイヤー(player)
+        //・取り得る手(moves)
+        function makeGameTree(board, player, wasPassed) {
+            return {
+                board: board,
+                player: player,
+                moves: listPossibleMoves(board, player, wasPassed)
+            };
+        }
+
+
+        //「取り得る手」を列挙する関数で下記の項目を返す
+        //・攻撃する手
+        //・パス
+        function listPossibleMoves(board, player, wasPassed) {
+            return completePassingMove(
+                listAttackingMoves(board, player),
+                board,
+                player,
+                wasPassed
+            );
+        }
+
+        //「必要ならパスする手を補完する」関数 
+        //・攻撃できる手があるならパスできない
+        //・攻撃できる手がなく、直前の手番でパスされていなければパスできる
+        //・二人連続でパスしたらゲーム終了
+
+        function completePassingMove(attackingMoves, board, player, wasPassed) {
+            if (0 < attackingMoves.length) {
+                return attackingMoves;
+            } else if (!wasPassed) {
+                return [{
+                isPassingMove: true,
+                gameTree: makeGameTree(board, nextPlayer(player), true)
+                }];
+            } else {
+                return [];
+            }
+        }
+
+        //全てのマスを調べて石がおける手(「攻撃できる手を列挙する関数」)
+        function listAttackingMoves(board, player) {
+            var moves = [];
+
+            for (var x = 0; x < N; x++) {
+                for (var y = 0; y < N; y++) {
+                if (canAttack(board, x, y, player)) {
+                    moves.push({
+                    x: x,
+                    y: y,
+                    gameTree: makeGameTree(
+                        makeAttackedBoard(board, x, y, player),
+                        nextPlayer(player),
+                        false
+                    )
+                    });
+                }
+                }
+            }
+
+            return moves;
+        }
+
+        //次の手番のプレイヤーを返す関数
+        function nextPlayer(player) {
+            return player == BLACK ? WHITE : BLACK;
+        }
+
+        //石が置けるかどうかを判定する関数
+        function canAttack(board, x, y, player) {
+            return listVulnerableCells(board, x, y, player).length;
+        }
+
+        //石を置いた後の盤面を作る関数
+        function makeAttackedBoard(board, x, y, player) {
+            var newBoard = JSON.parse(JSON.stringify(board));
+            var vulnerableCells = listVulnerableCells(board, x, y, player);
+            for (i = 0; i < vulnerableCells.length; i++)
+                newBoard[vulnerableCells[i]] = player;
+            return newBoard;
+        }
+
+        //あるマスに石が置けるかどうか
+        //・そのマスにどの石も置かれておらず
+        //・上下左右斜めに敵の石が1個以上連続して存在し
+        //・その後に自分の石が存在する
+        function listVulnerableCells(board, x, y, player) {
+            var vulnerableCells = [];
+
+            if (board[[x, y]] != EMPTY)
+                return vulnerableCells;
+
+            var opponent = nextPlayer(player);
+            for (var dx = -1; dx <= 1; dx++) {
+                for (var dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0)
+                    continue;
+                for (var i = 1; i < N; i++) {
+                    var nx = x + i * dx;
+                    var ny = y + i * dy;
+                    if (nx < 0 || N <= nx || ny < 0 || N <= ny)
+                    break;
+                    var cell = board[[nx, ny]];
+                    if (cell == player && 2 <= i) {
+                    for (j = 0; j < i; j++)
+                        vulnerableCells.push([x + j * dx, y + j * dy]);
+                    break;
+                    }
+                    if (cell != opponent)
+                    break;
+                }
+                }
+            }
+
+            return vulnerableCells;
+        }
+
+        function setUpUIToChooseMove(gameTree) {
+            $('#message').text('Choose your move.');
+            gameTree.moves.forEach(function (m, i) {
+                $('#console').append(
+                $('<input type="button" class="btn">')
+                .val(makeLabelForMove(m))
+                .click(function () {
+                    shiftToNewGameTree(m.gameTree);
+                })
+                );
+            });
+        }
+
+        function makeLabelForMove(move) {
+            if (move.isPassingMove)
+                return 'Pass';
+            else
+                return 'abcdefgh'[move.x] + '12345678'[move.y];
+        }
+
+        function resetUI() {
+            $('#console').empty();
+            $('#message').empty();
+        }
+
+        function showWinner(board) {
+            var nt = {};
+            nt[BLACK] = 0;
+            nt[WHITE] = 0;
+
+            for (var x = 0; x < N; x++)
+                for (var y = 0; y < N; y++)
+                nt[board[[x, y]]]++;
+
+            $('#message').text(
+                nt[BLACK] == nt[WHITE]
+                ? 'The game ends in a draw.'
+                : 'The winner is ' + (nt[WHITE] < nt[BLACK] ? BLACK : WHITE) + '.'
+            );
+        }
+
+        function setUpUIToReset() {
+            $('#console').append(
+                $('<input type="button" class="btn">')
+                .val('Start a new game')
+                .click(function () {
+                resetGame();
+                })
+            );
+        }
+
+        function resetGame() {
+            shiftToNewGameTree(makeGameTree(makeInitialGameBoard(), BLACK, false));
+        }
+
+        function shiftToNewGameTree(gameTree) {
+            drawGameBoard(gameTree.board, gameTree.player, gameTree.moves);
+            resetUI();
+            if (gameTree.moves.length == 0) {
+                showWinner(gameTree.board);
+                setUpUIToReset();
+            } else {
+                setUpUIToChooseMove(gameTree);
+            }
+        }
+
+    </script>
+
+
+</body>
+</html>
